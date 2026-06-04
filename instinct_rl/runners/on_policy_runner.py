@@ -301,6 +301,8 @@ class OnPolicyRunner:
             v = self.gather_stat_values(v, "mean")
             self.writer_mp_add_scalar("Train/" + k, v.item(), self.current_learning_iteration)
 
+        self._log_moe_gate_weights(locs["obs"], locs["critic_obs"] if locs["critic_obs"] is not None else locs["obs"])
+
         self.writer_mp_add_scalar("Loss/learning_rate", self.alg.learning_rate, self.current_learning_iteration)
         self.writer_mp_add_scalar("Policy/mean_noise_std", mean_std.item(), self.current_learning_iteration)
         self.writer_mp_add_scalar("Perf/total_fps", fps, self.current_learning_iteration)
@@ -528,6 +530,54 @@ class OnPolicyRunner:
         else:
             raise ValueError(f"Unsupported gather_op: {gather_op}")
         return values
+
+    def _log_moe_gate_weights(self, obs, critic_obs):
+        if not hasattr(self.alg.actor_critic, "get_moe_gate_weights"):
+            return
+
+        with torch.inference_mode():
+            gate_weights = self.alg.actor_critic.get_moe_gate_weights(obs, critic_obs)
+
+        for gate_name, weights in gate_weights.items():
+            if weights is None or weights.numel() == 0:
+                continue
+
+            weights = weights.detach().float().reshape(-1, weights.shape[-1])
+            num_experts = weights.shape[-1]
+            clipped_weights = weights.clamp_min(1.0e-8)
+            entropy = -(clipped_weights * clipped_weights.log()).sum(dim=-1)
+            max_weight = weights.max(dim=-1).values
+            top_experts = weights.argmax(dim=-1)
+
+            self.writer_mp_add_scalar(
+                f"MoE/{gate_name}/max_weight_mean",
+                self.gather_stat_values(max_weight, "mean").item(),
+                self.current_learning_iteration,
+            )
+            self.writer_mp_add_scalar(
+                f"MoE/{gate_name}/entropy",
+                self.gather_stat_values(entropy, "mean").item(),
+                self.current_learning_iteration,
+            )
+            if num_experts > 1:
+                normalized_entropy = entropy / torch.log(torch.tensor(float(num_experts), device=weights.device))
+                self.writer_mp_add_scalar(
+                    f"MoE/{gate_name}/normalized_entropy",
+                    self.gather_stat_values(normalized_entropy, "mean").item(),
+                    self.current_learning_iteration,
+                )
+
+            for expert_id in range(num_experts):
+                self.writer_mp_add_scalar(
+                    f"MoE/{gate_name}/expert_{expert_id}_weight_mean",
+                    self.gather_stat_values(weights[:, expert_id], "mean").item(),
+                    self.current_learning_iteration,
+                )
+                self.writer_mp_add_scalar(
+                    f"MoE/{gate_name}/expert_{expert_id}_top1_fraction",
+                    self.gather_stat_values((top_experts == expert_id).float(), "mean").item(),
+                    self.current_learning_iteration,
+                )
 
     def writer_mp_add_scalar(self, key, value, step):
         """Add scalar to tensorboard writer. Will not happen if in multi-process and not rank 0."""

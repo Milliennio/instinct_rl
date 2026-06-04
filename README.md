@@ -117,3 +117,85 @@ Collection of encoder architectures for processing different input modalities:
 - **All Mixer**: Multi-modal input processing that combines different observation types
 - **VQ-VAE**: Vector Quantized Variational Autoencoder for discrete latent representations
 - **State Estimator**: Networks for estimating hidden states from partial observations
+
+
+
+
+# 0414
+
+python source/instinctlab/instinctlab/tasks/parkour/scripts/play.py --task=Instinct-Parkour-Target-Amp-G1-v0 --load_run=20260409_125742
+
+/home/you/instinct_rl/instinctlab/logs/0414/model_30000.pt
+
+python scripts/rsl_rl/play.py --num_envs 64 --task Unitree-G1-29dof-Velocity --checkpoint /home/you/unitree_rl_lab/logs/rsl_rl/unitree_g1_29dof_velocity/5090logs/0408/model_94999.pt
+
+python source/instinctlab/instinctlab/tasks/parkour/scripts/play.py --task=Instinct-Parkour-Target-Amp-G1-v0 --checkpoint /home/you/instinct_rl/instinctlab/logs/0414/model_30000.pt --num_envs 64
+
+
+python source/instinctlab/instinctlab/tasks/parkour/scripts/play.py \
+--task=Instinct-Parkour-Target-Amp-G1-v0 --num_envs 1 \
+--load_run 0414 \
+--checkpoint model_30000.pt
+
+[INFO] Generating terrains based on curriculum took : 27.150010 seconds
+Detected 43103 edges after processing.
+Generate virtual obstacle edges : 64.027296 seconds
+[INFO]: Time taken for scene creation : 120.910859 seconds
+[INFO]: Scene manager:  <class InteractiveScene>
+        Number of environments: 4096
+        Environment spacing   : 2.5
+        Source prim name      : /World/envs/env_0
+        Global prim paths     : ['/World/ground']
+        Replicate physics     : True
+[INFO]: Starting the simulation. This may take a few seconds. Please wait...
+Killed
+
+export HTTP_PROXY=http://127.0.0.1:7897
+export HTTPS_PROXY=https://127.0.0.1:7897
+
+
+yzp1-495012
+
+
+python source/instinctlab/instinctlab/tasks/parkour/scripts/play.py --task=Instinct-Parkour-Target-Amp-G1-Play-v0 --load_run=20260430_153307_from20260409_125742
+
+python source/instinctlab/instinctlab/tasks/parkour/scripts/play.py --task=Instinct-Parkour-Target-Amp-G1-Play-v0 --load_run=0414
+
+python scripts/instinct_rl/collect_depth_data.py \
+    --task Instinct-Parkour-Target-Amp-G1-Play-v0 \
+    --load_run 0414 \
+    --collect_steps 5000 \
+    --num_envs 128 \
+    --save_dir ./perception_dataset
+
+0514
+
+基于落脚点的控制？
+控制目标为脚落在某个位置？
+
+
+python source/instinctlab/instinctlab/tasks/parkour/scripts/play.py --task=Instinct-Parkour-Target-Amp-G1-Play-v0 --load_run=0414 --useonnx --num_envs 1
+
+/home/you/instinct_rl/instinctlab/logs/0414/exported/actor.onnx
+
+QFontDatabase: Cannot find font directory /home/you/miniconda3/envs/isaaclab/lib/python3.11/site-packages/cv2/qt/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+QFontDatabase: Cannot find font directory /home/you/miniconda3/envs/isaaclab/lib/python3.11/site-packages/cv2/qt/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+QFontDatabase: Cannot find font directory /home/you/miniconda3/envs/isaaclab/lib/python3.11/site-packages/cv2/qt/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+QFontDatabase: Cannot find font directory /home/you/miniconda3/envs/isaaclab/lib/python3.11/site-packages/cv2/qt/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+QFontDatabase: Cannot find font directory /home/you/miniconda3/envs/isaaclab/lib/python3.11/site-packages/cv2/qt/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+[INFO] Observation Manager: <ObservationManager> contains 4 groups.
+
+# 0522
+python source/instinctlab/instinctlab/tasks/parkour/scripts/play.py --task=Instinct-Parkour-Target-Amp-G1-Play-v0 --load_run=0519_att --exportonnx
+
+
+python source/instinctlab/instinctlab/tasks/parkour/scripts/play.py --task=Instinct-Parkour-Target-Amp-G1-v0 --load_run=0519_att --exportonnx
+
+
+
+python source/instinctlab/instinctlab/tasks/parkour/scripts/collect_and_vis_depth.py --task Instinct-Parkour-Target-Amp-G1-Play-v0 --load_run 0519_att

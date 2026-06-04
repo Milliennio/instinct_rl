@@ -1,0 +1,64 @@
+# Parkour 任务核心文件与配置指南
+
+在 `instinct_rl` 框架中进行 Parkour 跑酷任务的训练、修改和部署，主要涉及以下三大模块的文件。理解这些文件的职责划分，将极大提高您的开发与调试效率。
+
+---
+
+## 1. 仿真与环境配置 (Simulation & Environment)
+
+这些文件定义了机器人“在哪里训练”、“能看到什么”以及“目标是什么”。
+
+### `instinctlab/tasks/parkour/config/parkour_env_cfg.py`
+**功能定位**：核心 MDP（马尔可夫决策过程）与基础环境配置文件。
+**主要负责**：
+- **地形生成 (Terrain)**：定义了各种跑酷地形（如 `pyramid_stairs` 楼梯、`square_gaps` 断崖、`perlin_rough` 粗糙地面）。
+- **场景实体 (Scene)**：配置机器人、天空光照，以及最重要的**传感器**（如 `NoisyGroupedRayCasterCamera` 深度相机及其裁剪、模糊、归一化等噪声管线）。
+- **观测空间 (Observations)**：定义 `Policy` (策略网络) 和 `Critic` (价值网络) 的输入，如时序对齐的图像、重力投影、关节位置/速度。
+- **奖励与惩罚 (Rewards & Terminations)**：定义 `G1Rewards`（如速度追踪、姿态惩罚、能耗惩罚）以及回合结束条件（如摔倒、超时）。
+
+### `instinctlab/tasks/parkour/config/g1/g1_parkour_target_amp_cfg.py`
+**功能定位**：针对特定机器人 (Unitree G1) 与特定算法 (AMP) 的环境继承与重写。
+**主要负责**：
+- **模型绑定**：将通用 Parkour 环境与 G1 机器人的 URDF / 驱动（Actuators）绑定。
+- **动捕数据参考 (Motion Reference)**：配置 AMP 算法所需的专家数据集（AMASS跑酷动作）、数据分割方式以及镜像数据增强 (`symmetric_augmentation`)。
+- **Play 模式配置**：定义 `G1ParkourRoughEnvCfg_PLAY`，用于评估和推理时生成较小、更干净的地形网格。
+
+---
+
+## 2. 算法与网络设置 (Algorithm & Network)
+
+这些文件定义了机器人的“大脑结构”以及“如何学习”。
+
+### `instinctlab/tasks/parkour/config/g1/agents/instinct_rl_amp_cfg.py`
+**功能定位**：强化学习超参数与神经网络架构配置。
+**主要负责**：
+- **视觉编码器 (EncoderConfigs)**：定义深度图的卷积网络架构（Channels, Kernel sizes, 提取出 128 维特征）。
+- **策略网络架构 (MoEPolicyCfg)**：定义 Actor/Critic 的隐藏层维度，以及混合专家架构（`num_moe_experts = 4`）的配置。
+- **PPO & AMP 训练超参数 (AmpAlgoCfg)**：定义学习率 (`learning_rate`)、AMP 鉴别器的网络结构与损失函数 (`MSELoss`)、风格奖励系数 (`discriminator_reward_coef`) 等。
+- **运行配置 (RunnerCfg)**：定义训练总步数、保存频率以及是否加载预训练权重（`load_run`）。
+
+---
+
+## 3. 实机部署与系统集成 (Real-world Deployment)
+
+这些文件位于 `instinct_onboard` 目录下，负责将仿真训练好的 ONNX 模型无缝对接到真实的硬件传感器与电机上。
+
+### `instinct_onboard/agents/parkour_agent.py`
+**功能定位**：Sim2Real 策略推理的大脑中枢。
+**主要负责**：
+- **ONNX 模型加载与推理**：高速执行视觉 Encoder 和 Actor 策略。
+- **视觉对齐机制**：通过数学计算动态缩放实机相机频率，提取精准的时序历史帧（利用 `CircularBuffer` 防止卡顿）。
+- **图像预处理复刻**：使用 OpenCV 完美复刻仿真中的相机裁剪、空洞修补 (`cv2.inpaint`)、高斯模糊与归一化。
+- **遥控器指令映射**：将手柄的摇杆输入映射为 `[vx, vy, yaw]` 速度指令供网络参考。
+
+### `instinct_onboard/ros_nodes/unitree.py`
+**功能定位**：机器人底层硬件通信节点。
+**主要负责**：
+- 订阅真实机器人的 IMU 数据，**解算重力投影向量**（四元数旋转）。
+- 订阅高频底层状态 (`/lowstate`) 获取原生关节位置与速度。
+- 将推理出的 Action 转换为目标位置，并配合 PD 增益发布给底盘电机。并执行硬件安全保护限制。
+
+### `instinct_onboard/ros_nodes/realsense.py`
+**功能定位**：高性能深度相机采集节点。
+**主要负责**：
+- 开启独立的守护进程采集深度图（最高 60Hz），使用**共享内存 (Shared Memory)** 零拷贝传递给推理主进程，彻底防止 I/O 阻塞造成的控制循环延迟。

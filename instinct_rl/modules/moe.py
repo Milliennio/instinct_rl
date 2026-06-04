@@ -45,8 +45,12 @@ class MoeLayer(nn.Module):
             layers.append(nn.Linear(curr_dim, output_dim))  # no activation for the last layer
         return nn.Sequential(*layers)
 
+    def gate_weights(self, x):
+        """Return the softmax-normalized gate weights for logging or inspection."""
+        return F.softmax(self.gate(x), dim=-1)
+
     def forward(self, x):
-        gate_scores = F.softmax(self.gate(x), dim=-1)  # [batch, num_experts] # gate the expert outputs
+        gate_scores = self.gate_weights(x)  # [batch, num_experts] # gate the expert outputs
         expert_outputs = [expert(x) for expert in self.experts]
         expert_outputs = torch.stack(expert_outputs, dim=1)  # [batch, num_experts, output_dim]
         output = torch.einsum("be,beo->bo", gate_scores, expert_outputs)  # mix the expert outputs
