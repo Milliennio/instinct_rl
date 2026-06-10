@@ -9,6 +9,7 @@ from .all_mixer import (
     EncoderStateAcRecurrent,
     EncoderVaeActorCritic,
 )
+from .conv_temporal_transformer import ConvTemporalTransformerHeadModel
 from .discriminator import Discriminator
 from .encoder_actor_critic import EncoderActorCritic, EncoderActorCriticRecurrent
 from .moe_actor_critic import MoEActorCritic

@@ -199,3 +199,34 @@ python source/instinctlab/instinctlab/tasks/parkour/scripts/play.py --task=Insti
 
 
 python source/instinctlab/instinctlab/tasks/parkour/scripts/collect_and_vis_depth.py --task Instinct-Parkour-Target-Amp-G1-Play-v0 --load_run 0519_att
+
+
+python source/instinctlab/instinctlab/tasks/parkour/scripts/play.py \
+  --task=Instinct-Parkour-Target-Amp-G1-Play-v0 \
+  --load_run=0414 \
+  --useonnx \
+  --num_envs=1 \
+  --terrain_name=pyramid_stairs_inv \
+  --terrain_level=2 \
+  --log_moe_gate
+
+
+  
+
+  python source/instinctlab/instinctlab/tasks/parkour/scripts/play.py \
+  --task=Instinct-Parkour-Target-Amp-G1-Play-v0 \
+  --load_run=0414 \
+  --useonnx \
+  --num_envs=1 \
+  --terrain_name=mesh_boxes \
+  --terrain_level=2 \
+  --log_moe_gate
+
+
+# 0610 
+新建配置
+instinct-Parkour-Target-Amp-G1-Gate-v0（门控网络输入裁减）
+Instinct-Parkour-Target-Amp-G1-Stair-v0 （纯楼梯+平地地形）
+instinct-Parkour-Target-Amp-G1-Stair-Gate-v0
+
+python scripts/instinct_rl/train.py --headless --task=Instinct-Parkour-Target-Amp-G1-Stair-Gate-v0

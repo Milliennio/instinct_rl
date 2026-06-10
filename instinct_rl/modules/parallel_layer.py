@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 
 from instinct_rl.modules.conv2d import Conv2dHeadModel
+from instinct_rl.modules.conv_temporal_transformer import ConvTemporalTransformerHeadModel
 from instinct_rl.modules.mlp import MlpModel
 from instinct_rl.modules.transformer import TransformerHeadModel
 from instinct_rl.utils.utils import (
@@ -89,6 +90,15 @@ class ParallelLayer(nn.Module):
                 output_size=output_size,
                 **model_kwargs,
             )
+        elif model_class_name == "ConvTemporalTransformerHeadModel":
+            assert (
+                len(input_component_shapes) == 1
+            ), "ConvTemporalTransformerHeadModel only accepts one image-history component"
+            model = ConvTemporalTransformerHeadModel(
+                input_component_shapes,
+                output_size=output_size,
+                **model_kwargs,
+            )
         else:
             model = None  # leave for subclass to implement
         return model
@@ -140,8 +150,10 @@ class ParallelLayer(nn.Module):
             input_segments,
             temporal=module_is_from_type(block, TransformerHeadModel),
         )
-        if module_is_from_type(block, Conv2dHeadModel):
-            assert len(input_component_names) == 1, "Conv2dHeadModel only accept one obs component for now"
+        if module_is_from_type(block, (Conv2dHeadModel, ConvTemporalTransformerHeadModel)):
+            assert (
+                len(input_component_names) == 1
+            ), "Conv2dHeadModel and ConvTemporalTransformerHeadModel only accept one obs component for now"
             input_for_block = input_for_block.reshape(-1, *input_segments[input_component_names[0]])
         return block(input_for_block)
 
@@ -174,10 +186,12 @@ class ParallelLayer(nn.Module):
             self.input_segments,
             temporal=module_is_from_type(block, TransformerHeadModel),
         )
-        if module_is_from_type(block, Conv2dHeadModel):
-            assert len(input_component_names) == 1, "Conv2dHeadModel only accept one obs component for now"
+        if module_is_from_type(block, (Conv2dHeadModel, ConvTemporalTransformerHeadModel)):
+            assert (
+                len(input_component_names) == 1
+            ), "Conv2dHeadModel and ConvTemporalTransformerHeadModel only accept one obs component for now"
             input_for_block = input_for_block.reshape(-1, *self.input_segments[input_component_names[0]])
-        if module_is_from_type(block, TransformerHeadModel):
+        if module_is_from_type(block, (TransformerHeadModel, ConvTemporalTransformerHeadModel)):
             torch.backends.cuda.enable_mem_efficient_sdp(False)  # Disable Memory-Efficient Attention
         exported_program = torch.onnx.export(
             block,

@@ -39,6 +39,7 @@ Actor Encoder: ParallelLayer(1 blocks): ModuleDict(
 
 之前的模型：cnn_encoder:instinct_rl_amp_cfg_cnn.py
 
+输入(B,8,18,32)
 Actor Encoder: ParallelLayer(1 blocks): ModuleDict(
   (depth_encoder): Conv2dHeadModel(
     (conv): Conv2dModel(
@@ -59,7 +60,7 @@ Actor Encoder: ParallelLayer(1 blocks): ModuleDict(
     )
   )
 )
-
+输出（B，128）
 
 import torch
 import torch.nn as nn

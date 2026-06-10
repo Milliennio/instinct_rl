@@ -16,10 +16,18 @@ class MoeLayer(nn.Module):
         activation="elu",
         expert_hidden_dims=[],
         gate_hidden_dims=[],
+        gate_input_dim=None,
+        gate_input_indices=None,
     ):
         super().__init__()
         self.act_fn = get_activation(activation)
-        self.gate = self._build_gate(input_dim, num_experts, gate_hidden_dims)
+        self.input_dim = input_dim
+        self.gate_input_dim = gate_input_dim if gate_input_dim is not None else input_dim
+        if gate_input_indices is not None:
+            self.register_buffer("gate_input_indices", torch.as_tensor(gate_input_indices, dtype=torch.long))
+        else:
+            self.gate_input_indices = None
+        self.gate = self._build_gate(self.gate_input_dim, num_experts, gate_hidden_dims)
         self.experts = nn.ModuleList(
             [self._build_expert(input_dim, output_dim, expert_hidden_dims) for _ in range(num_experts)]
         )
@@ -45,9 +53,14 @@ class MoeLayer(nn.Module):
             layers.append(nn.Linear(curr_dim, output_dim))  # no activation for the last layer
         return nn.Sequential(*layers)
 
+    def _select_gate_input(self, x):
+        if self.gate_input_indices is None:
+            return x
+        return torch.index_select(x, dim=-1, index=self.gate_input_indices)
+
     def gate_weights(self, x):
         """Return the softmax-normalized gate weights for logging or inspection."""
-        return F.softmax(self.gate(x), dim=-1)
+        return F.softmax(self.gate(self._select_gate_input(x)), dim=-1)
 
     def forward(self, x):
         gate_scores = self.gate_weights(x)  # [batch, num_experts] # gate the expert outputs
