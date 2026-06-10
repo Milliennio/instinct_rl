@@ -61,6 +61,7 @@ class PPO:
         schedule="fixed",
         desired_kl=0.01,
         auxiliary_reward_per_env_reward_coefs: list[float] = list(),
+        auxiliary_observation_group_names: list[str] = list(),
         device="cpu",
         **kwargs,
     ):
@@ -82,6 +83,7 @@ class PPO:
             if len(auxiliary_reward_per_env_reward_coefs) > 0
             else 1.0
         )
+        self.auxiliary_observation_group_names = auxiliary_observation_group_names
         # PPO components
         self.actor_critic = actor_critic
         self.actor_critic.to(self.device)
@@ -118,6 +120,11 @@ class PPO:
         self.transition = RolloutStorage.Transition()
         obs_size = get_subobs_size(obs_format["policy"])
         critic_obs_size = get_subobs_size(obs_format.get("critic")) if "critic" in obs_format else None
+        aux_obs_shapes = {
+            group_name: [get_subobs_size(obs_format[group_name])]
+            for group_name in self.auxiliary_observation_group_names
+            if group_name in obs_format
+        }
         self.storage = RolloutStorage(
             num_envs,
             num_transitions_per_env,
@@ -125,6 +132,7 @@ class PPO:
             [critic_obs_size],
             [num_actions],
             num_rewards=num_rewards,
+            aux_obs_shapes=aux_obs_shapes,
             device=self.device,
         )
 
@@ -134,7 +142,7 @@ class PPO:
     def train_mode(self):
         self.actor_critic.train()
 
-    def act(self, obs, critic_obs):
+    def act(self, obs, critic_obs, obs_pack: dict[str, torch.Tensor] | None = None):
         if self.actor_critic.is_recurrent:
             self.transition.hidden_states = self.actor_critic.get_hidden_states()
         # Compute the actions and values
@@ -146,6 +154,11 @@ class PPO:
         # need to record obs and critic_obs before env.step()
         self.transition.observations = obs
         self.transition.critic_observations = critic_obs
+        self.transition.aux_observations = {}
+        if obs_pack is not None:
+            for group_name in self.auxiliary_observation_group_names:
+                if group_name in obs_pack:
+                    self.transition.aux_observations[group_name] = obs_pack[group_name].to(self.device)
         return self.transition.actions
 
     def process_env_step(self, rewards, dones, infos, next_obs, next_critic_obs):
@@ -294,6 +307,14 @@ class PPO:
         )
         if entropy_batch is not None:
             return_["entropy"] = -entropy_batch.mean()
+
+        if hasattr(self.actor_critic, "compute_auxiliary_losses") and minibatch.aux_obs:
+            auxiliary_losses, auxiliary_stats = self.actor_critic.compute_auxiliary_losses(
+                minibatch.obs,
+                minibatch.aux_obs,
+            )
+            return_.update(auxiliary_losses)
+            stats_.update(auxiliary_stats)
 
         inter_vars = dict(
             ratio=ratio,

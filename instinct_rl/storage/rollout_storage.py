@@ -47,6 +47,7 @@ class RolloutStorage:
         def __init__(self):
             self.observations = None
             self.critic_observations = None
+            self.aux_observations = None
             self.actions = None
             self.rewards = None
             self.dones = None
@@ -73,17 +74,27 @@ class RolloutStorage:
             "old_sigma",
             "hidden_states",
             "masks",
+            "aux_obs",
         ],
     )
 
     def __init__(
-        self, num_envs, num_transitions_per_env, obs_shape, critic_obs_shape, actions_shape, num_rewards=1, device="cpu"
+        self,
+        num_envs,
+        num_transitions_per_env,
+        obs_shape,
+        critic_obs_shape,
+        actions_shape,
+        num_rewards=1,
+        aux_obs_shapes=None,
+        device="cpu",
     ):
         self.device = device
 
         self.obs_shape = obs_shape
         self.critic_obs_shape = critic_obs_shape
         self.actions_shape = actions_shape
+        self.aux_obs_shapes = aux_obs_shapes or {}
         self.num_rewards = num_rewards
 
         # Core
@@ -97,6 +108,10 @@ class RolloutStorage:
         self.rewards = torch.zeros(num_transitions_per_env, num_envs, num_rewards, device=self.device)
         self.actions = torch.zeros(num_transitions_per_env, num_envs, *actions_shape, device=self.device)
         self.dones = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device).byte()
+        self.aux_observations = {
+            name: torch.zeros(num_transitions_per_env, num_envs, *shape, device=self.device)
+            for name, shape in self.aux_obs_shapes.items()
+        }
 
         # For PPO
         self.actions_log_prob = torch.zeros(num_transitions_per_env, num_envs, 1, device=self.device)
@@ -121,6 +136,13 @@ class RolloutStorage:
         if self.critic_observations is not None:
             self.critic_observations[self.step].copy_(transition.critic_observations)
         self.actions[self.step].copy_(transition.actions)
+        if self.aux_observations:
+            if transition.aux_observations is None:
+                raise ValueError("RolloutStorage expects auxiliary observations, but transition has none.")
+            for name, obs_buffer in self.aux_observations.items():
+                if name not in transition.aux_observations:
+                    raise ValueError(f"Missing auxiliary observation group '{name}' in transition.")
+                obs_buffer[self.step].copy_(transition.aux_observations[name])
         self.rewards[self.step].copy_(transition.rewards.view(-1, self.num_rewards))
         self.dones[self.step].copy_(transition.dones.view(-1, 1))
         self.values[self.step].copy_(transition.values)
@@ -264,6 +286,9 @@ class RolloutStorage:
             )
             obs_mask_batch = self._trajectory_masks[T_select, padded_B_slice]
 
+        aux_obs_batch = {
+            name: obs_buffer[T_select, B_select] for name, obs_buffer in self.aux_observations.items()
+        }
         action_batch = self.actions[T_select, B_select]
         target_value_batch = self.values[T_select, B_select]
         return_batch = self.returns[T_select, B_select]
@@ -284,6 +309,7 @@ class RolloutStorage:
             old_sigma_batch,
             hid_batch,
             obs_mask_batch,
+            aux_obs_batch,
         )
 
 
@@ -359,6 +385,14 @@ class QueueRolloutStorage(RolloutStorage):
             ],
             dim=0,
         ).contiguous()
+        for name, obs_buffer in self.aux_observations.items():
+            self.aux_observations[name] = torch.cat(
+                [
+                    obs_buffer,
+                    torch.zeros(expand_size, self.num_envs, *self.aux_obs_shapes[name], device=self.device),
+                ],
+                dim=0,
+            ).contiguous()
 
         # For PPO
         self.actions_log_prob = torch.cat(
@@ -459,6 +493,8 @@ class QueueRolloutStorage(RolloutStorage):
         self.actions_log_prob = self.swap_from_cursor(self.actions_log_prob)
         self.mu = self.swap_from_cursor(self.mu)
         self.sigma = self.swap_from_cursor(self.sigma)
+        for name, obs_buffer in self.aux_observations.items():
+            self.aux_observations[name] = self.swap_from_cursor(obs_buffer)
         if not self.saved_hidden_states is None:
             with torch.no_grad():
                 self.saved_hidden_states = buffer_swap(self.saved_hidden_states, self.step, contiguous=True)

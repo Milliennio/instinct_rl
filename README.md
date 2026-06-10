@@ -224,9 +224,11 @@ python source/instinctlab/instinctlab/tasks/parkour/scripts/play.py \
 
 
 # 0610 
-新建配置
+## 新建配置
 instinct-Parkour-Target-Amp-G1-Gate-v0（门控网络输入裁减）
 Instinct-Parkour-Target-Amp-G1-Stair-v0 （纯楼梯+平地地形）
 instinct-Parkour-Target-Amp-G1-Stair-Gate-v0
 
 python scripts/instinct_rl/train.py --headless --task=Instinct-Parkour-Target-Amp-G1-Stair-Gate-v0
+
+

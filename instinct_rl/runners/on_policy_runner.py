@@ -123,6 +123,7 @@ class OnPolicyRunner:
             )
         obs, extras = self.env.get_observations()
         obs = obs.to(self.device)
+        obs_pack = extras["observations"]
         critic_obs = extras["observations"].get("critic", None)
         critic_obs = critic_obs.to(self.device) if critic_obs is not None else None
         self.train_mode()
@@ -154,7 +155,7 @@ class OnPolicyRunner:
             # Rollout
             with torch.inference_mode(self.cfg.get("inference_mode_rollout", True)):
                 for i in range(self.num_steps_per_env):
-                    obs, critic_obs, rewards, dones, infos = self.rollout_step(obs, critic_obs)
+                    obs, critic_obs, obs_pack, rewards, dones, infos = self.rollout_step(obs, critic_obs, obs_pack)
                     if len(rewards.shape) == 1:
                         rewards = rewards.unsqueeze(-1)
 
@@ -198,8 +199,8 @@ class OnPolicyRunner:
 
         self.save(os.path.join(self.log_dir, f"model_{self.current_learning_iteration}.pt"))
 
-    def rollout_step(self, obs, critic_obs):
-        actions = self.alg.act(obs, critic_obs)
+    def rollout_step(self, obs, critic_obs, obs_pack):
+        actions = self.alg.act(obs, critic_obs, obs_pack)
         obs, rewards, dones, infos = self.env.step(actions)
         critic_obs = infos["observations"].get("critic", None)
         obs, critic_obs, rewards, dones = (
@@ -220,7 +221,7 @@ class OnPolicyRunner:
             else:
                 infos["observations"][obs_group_name] = normalizer(infos["observations"][obs_group_name])
         self.alg.process_env_step(rewards, dones, infos, obs, critic_obs)
-        return obs, critic_obs, rewards, dones, infos
+        return obs, critic_obs, infos["observations"], rewards, dones, infos
 
     """
     Logging
