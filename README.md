@@ -225,10 +225,59 @@ python source/instinctlab/instinctlab/tasks/parkour/scripts/play.py \
 
 # 0610 
 ## 新建配置
-instinct-Parkour-Target-Amp-G1-Gate-v0（门控网络输入裁减）
+Instinct-Parkour-Target-Amp-G1-Gate-v0（门控网络输入裁减）
 Instinct-Parkour-Target-Amp-G1-Stair-v0 （纯楼梯+平地地形）
 instinct-Parkour-Target-Amp-G1-Stair-Gate-v0
 
 python scripts/instinct_rl/train.py --headless --task=Instinct-Parkour-Target-Amp-G1-Stair-Gate-v0
 
 
+# 0612
+python source/instinctlab/instinctlab/tasks/parkour/scripts/play.py --task=Instinct-Parkour-Target-Amp-G1-v0 --load_run=0609 --exportonnx
+
+python source/instinctlab/instinctlab/tasks/parkour/scripts/play.py \
+  --task=Instinct-Parkour-Target-Amp-G1-Stair-Play-v0 \
+  --load_run=0609 \
+  --useonnx \
+  --num_envs=1 \
+  --terrain_name=pyramid_stairs_inv \
+  --terrain_level=2 \
+  --log_moe_gate
+
+# 0618
+python source/instinctlab/instinctlab/tasks/parkour/scripts/play.py --task=Instinct-Parkour-Target-Amp-G1-Stair-TerrainAux-Play-v0 --load_run=0612_server --exportonnx
+
+！ 0612-server
+ checkpoint 里的 gate 还是“看全量输入”的旧结构
+ actor.gate.0.weight 是 128 x 864，critic.gate.0.weight 是 128 x 888
+
+本地代码里的 terrain_aux policy 已经切成了“门控只看部分输入”的新结构
+所以当前模型期待的是：
+actor gate: 128 x 168
+critic gate: 128 x 192
+还额外需要 actor.gate_input_indices、critic.gate_input_indices 这两个 buffer
+
+
+
+python source/instinctlab/instinctlab/tasks/parkour/scripts/play.py \
+  --task=Instinct-Parkour-Target-Amp-G1-TerrainAux-Play-v0 \
+  --load_run=0612_server \
+  --checkpoint=model_15000.pt \
+  --exportonnx \
+  --num_envs 1
+
+python source/instinctlab/instinctlab/tasks/parkour/scripts/play.py \
+  --task=Instinct-Parkour-Target-Amp-G1-Stair-TerrainAux-Play-v0 \
+  --load_run=0612_server \
+  --checkpoint=model_15000.pt \
+  --num_envs 1
+
+python source/instinctlab/instinctlab/tasks/parkour/scripts/play.py \
+  --task=Instinct-Parkour-Target-Amp-G1-Stair-TerrainAux-Play-v0 \
+  --load_run=0612_server \
+  --checkpoint=model_15000.pt \
+  --useonnx \
+  --num_envs=1 \
+  --terrain_name=pyramid_stairs_inv \
+  --terrain_level=2 \
+  --log_moe_gate
