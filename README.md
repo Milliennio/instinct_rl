@@ -281,3 +281,10 @@ python source/instinctlab/instinctlab/tasks/parkour/scripts/play.py \
   --terrain_name=pyramid_stairs_inv \
   --terrain_level=2 \
   --log_moe_gate
+
+  # 0619
+  python source/instinctlab/instinctlab/tasks/parkour/scripts/play.py \
+  --task=Instinct-Parkour-Target-Amp-G1-TerrainAux-Play-v0 \
+  --load_run=0612_5090 \
+  --exportonnx \
+  --num_envs 1

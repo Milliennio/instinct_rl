@@ -1,64 +1,470 @@
-# Parkour 任务核心文件与配置指南
+# Parkour 开发记录与配置指南
 
-在 `instinct_rl` 框架中进行 Parkour 跑酷任务的训练、修改和部署，主要涉及以下三大模块的文件。理解这些文件的职责划分，将极大提高您的开发与调试效率。
+本文档总结 `instinct_rl` 与 `instinctlab` 两个仓库中，围绕 Parkour 任务最近完成的核心修改、功能入口、配置接口与使用注意事项。重点覆盖以下几条主线：
 
----
-
-## 1. 仿真与环境配置 (Simulation & Environment)
-
-这些文件定义了机器人“在哪里训练”、“能看到什么”以及“目标是什么”。
-
-### `instinctlab/tasks/parkour/config/parkour_env_cfg.py`
-**功能定位**：核心 MDP（马尔可夫决策过程）与基础环境配置文件。
-**主要负责**：
-- **地形生成 (Terrain)**：定义了各种跑酷地形（如 `pyramid_stairs` 楼梯、`square_gaps` 断崖、`perlin_rough` 粗糙地面）。
-- **场景实体 (Scene)**：配置机器人、天空光照，以及最重要的**传感器**（如 `NoisyGroupedRayCasterCamera` 深度相机及其裁剪、模糊、归一化等噪声管线）。
-- **观测空间 (Observations)**：定义 `Policy` (策略网络) 和 `Critic` (价值网络) 的输入，如时序对齐的图像、重力投影、关节位置/速度。
-- **奖励与惩罚 (Rewards & Terminations)**：定义 `G1Rewards`（如速度追踪、姿态惩罚、能耗惩罚）以及回合结束条件（如摔倒、超时）。
-
-### `instinctlab/tasks/parkour/config/g1/g1_parkour_target_amp_cfg.py`
-**功能定位**：针对特定机器人 (Unitree G1) 与特定算法 (AMP) 的环境继承与重写。
-**主要负责**：
-- **模型绑定**：将通用 Parkour 环境与 G1 机器人的 URDF / 驱动（Actuators）绑定。
-- **动捕数据参考 (Motion Reference)**：配置 AMP 算法所需的专家数据集（AMASS跑酷动作）、数据分割方式以及镜像数据增强 (`symmetric_augmentation`)。
-- **Play 模式配置**：定义 `G1ParkourRoughEnvCfg_PLAY`，用于评估和推理时生成较小、更干净的地形网格。
+- MoE 门控权重记录与导出
+- MoE gate 输入切片
+- ConvTemporalTransformer 深度时序编码器
+- TerrainAux 地形重建辅助任务
+- 单地形/单难度 play 控制
+- 服务器与 git 兼容性修复
 
 ---
 
-## 2. 算法与网络设置 (Algorithm & Network)
+## 1. 修改总览
 
-这些文件定义了机器人的“大脑结构”以及“如何学习”。
+### `instinct_rl` 仓库主要提交
 
-### `instinctlab/tasks/parkour/config/g1/agents/instinct_rl_amp_cfg.py`
-**功能定位**：强化学习超参数与神经网络架构配置。
-**主要负责**：
-- **视觉编码器 (EncoderConfigs)**：定义深度图的卷积网络架构（Channels, Kernel sizes, 提取出 128 维特征）。
-- **策略网络架构 (MoEPolicyCfg)**：定义 Actor/Critic 的隐藏层维度，以及混合专家架构（`num_moe_experts = 4`）的配置。
-- **PPO & AMP 训练超参数 (AmpAlgoCfg)**：定义学习率 (`learning_rate`)、AMP 鉴别器的网络结构与损失函数 (`MSELoss`)、风格奖励系数 (`discriminator_reward_coef`) 等。
-- **运行配置 (RunnerCfg)**：定义训练总步数、保存频率以及是否加载预训练权重（`load_run`）。
+- `edfd486 moe_record`
+  - 增加 MoE gate 权重导出与训练期记录能力
+  - 新增 `AMP.md`、`MoE.md`、`parkour.mdc` 等说明文档
+
+- `520d04a moe_gate_slice`
+  - 新增 `ConvTemporalTransformerHeadModel`
+  - 支持 MoE gate 只读取观测子集而非全量输入
+
+- `46006ab terrain_aux`
+  - 新增 TerrainAux actor-critic
+  - PPO / RolloutStorage 支持 auxiliary observation group 与 auxiliary loss
+
+- `7c9cf6f git_fix`
+  - 同步 `instinctlab` 子仓库状态
+
+- `287dabf gitfix_0618`
+  - 修复服务器环境中 `store_code_state()` 因 git HEAD 异常而导致训练直接退出的问题
+
+### `instinctlab` 仓库主要提交
+
+- `f970f21 single_terrein_play`
+  - play 脚本支持单地形测试、指定地形难度、ONNX 推理与 MoE gate 日志
+
+- `2606e4d moe_gate_slice_cfg`
+  - 新增 gate 版本与 stair 版本 Parkour 任务注册
+  - RL config 中增加 gate 输入组件配置字段
+
+- `b608bdd terrain_aux`
+  - 新增 TerrainAux 环境、观测组、任务入口和训练配置
+
+- `a29c20a lite_conv_transformer`
+  - 精简 ConvTemporalTransformer 配置，降低训练与部署负担
+
+- `75a73bb add_gate_slice_option`
+  - 新增统一 CLI 参数 `--gate_slice`
+  - train / play 共用同一开关切换 gate 输入切片
 
 ---
 
-## 3. 实机部署与系统集成 (Real-world Deployment)
+## 2. 核心文件职责
 
-这些文件位于 `instinct_onboard` 目录下，负责将仿真训练好的 ONNX 模型无缝对接到真实的硬件传感器与电机上。
+### 环境与任务注册
 
-### `instinct_onboard/agents/parkour_agent.py`
-**功能定位**：Sim2Real 策略推理的大脑中枢。
-**主要负责**：
-- **ONNX 模型加载与推理**：高速执行视觉 Encoder 和 Actor 策略。
-- **视觉对齐机制**：通过数学计算动态缩放实机相机频率，提取精准的时序历史帧（利用 `CircularBuffer` 防止卡顿）。
-- **图像预处理复刻**：使用 OpenCV 完美复刻仿真中的相机裁剪、空洞修补 (`cv2.inpaint`)、高斯模糊与归一化。
-- **遥控器指令映射**：将手柄的摇杆输入映射为 `[vx, vy, yaw]` 速度指令供网络参考。
+- `instinctlab/.../tasks/parkour/config/parkour_env_cfg.py`
+  - Parkour 基础环境定义
+  - 包含地形、传感器、观测、奖励、终止条件等核心 MDP 配置
+  - 默认训练环境数为 `4096`
 
-### `instinct_onboard/ros_nodes/unitree.py`
-**功能定位**：机器人底层硬件通信节点。
-**主要负责**：
-- 订阅真实机器人的 IMU 数据，**解算重力投影向量**（四元数旋转）。
-- 订阅高频底层状态 (`/lowstate`) 获取原生关节位置与速度。
-- 将推理出的 Action 转换为目标位置，并配合 PD 增益发布给底盘电机。并执行硬件安全保护限制。
+- `instinctlab/.../tasks/parkour/config/g1/g1_parkour_target_amp_cfg.py`
+  - G1 机器人 Parkour AMP 环境
+  - 绑定机器人模型、motion reference、play 模式精简地形设置
 
-### `instinct_onboard/ros_nodes/realsense.py`
-**功能定位**：高性能深度相机采集节点。
-**主要负责**：
-- 开启独立的守护进程采集深度图（最高 60Hz），使用**共享内存 (Shared Memory)** 零拷贝传递给推理主进程，彻底防止 I/O 阻塞造成的控制循环延迟。
+- `instinctlab/.../tasks/parkour/config/g1/g1_parkour_target_amp_stair_cfg.py`
+  - 楼梯/平地子地形版本
+  - 用于更受控的 stair-only 训练与测试
+
+- `instinctlab/.../tasks/parkour/config/g1/g1_parkour_target_amp_terrain_aux_cfg.py`
+  - TerrainAux 环境扩展
+  - 添加 `terrain_aux` 观测组与局部高度图 ray-caster
+
+- `instinctlab/.../tasks/parkour/config/g1/__init__.py`
+  - 统一注册各 Parkour 任务 ID
+
+### 策略与算法
+
+- `instinct_rl/modules/moe.py`
+  - MoE 基础层
+  - 新增 `gate_input_dim`、`gate_input_indices`
+  - gate 支持从全量 obs 中切出子集作为输入
+
+- `instinct_rl/modules/moe_actor_critic.py`
+  - 支持 actor / critic 分别指定 gate 输入组件
+  - 支持导出 `actor_moe_gate.onnx`
+  - 支持训练期记录 gate 权重
+
+- `instinct_rl/modules/conv_temporal_transformer.py`
+  - 新增时序深度编码器
+  - 结构为 frame-wise CNN tokenizer + temporal Transformer + pooling + output MLP
+
+- `instinct_rl/modules/terrain_aux_actor_critic.py`
+  - 新增 TerrainAuxEncoderMoEActorCritic
+  - 从 depth latent 回归局部地形高度图向量
+
+- `instinct_rl/algorithms/ppo.py`
+  - 支持 auxiliary observation groups
+  - 更新时调用 `compute_auxiliary_losses`
+
+- `instinct_rl/storage/rollout_storage.py`
+  - rollout 中存储 `aux_obs`
+
+- `instinct_rl/runners/on_policy_runner.py`
+  - 训练日志中加入 MoE gate 统计
+  - 保存 / 加载逻辑支持 `ckpt_manipulator`
+
+### 部署与工具
+
+- `instinctlab/.../tasks/parkour/scripts/play.py`
+  - Parkour 专用 play 脚本
+  - 支持：
+    - `--terrain_name`
+    - `--terrain_level`
+    - `--useonnx`
+    - `--exportonnx`
+    - `--log_moe_gate`
+
+- `instinctlab/scripts/instinct_rl/train.py`
+  - Instinct-RL 训练入口
+  - 支持 DDP 分布式
+
+- `instinctlab/scripts/instinct_rl/cli_args.py`
+  - 训练与 play 共用参数入口
+  - 新增 `--gate_slice`
+
+---
+
+## 3. 新增功能详解
+
+### 3.1 MoE gate 权重记录与导出
+
+目标：提升专家分工的可解释性，并支持部署侧查看 gate 输出。
+
+新增能力：
+
+- 训练时 TensorBoard 记录：
+  - `max_weight_mean`
+  - `entropy`
+  - `normalized_entropy`
+  - 每个 expert 的平均权重
+  - 每个 expert 的 top1 占比
+
+- ONNX 导出：
+  - 在导出 actor 的同时导出 `actor_moe_gate.onnx`
+
+- play / onboard 日志：
+  - 可在 ONNX 推理时记录 gate 权重到 CSV
+
+对应代码：
+
+- `instinct_rl/modules/moe_actor_critic.py`
+- `instinct_rl/runners/on_policy_runner.py`
+- `instinctlab/.../tasks/parkour/scripts/play.py`
+- `instinct_onboard/.../agents/parkour_agent.py`
+
+### 3.2 MoE gate 输入切片
+
+目标：让 gate 只关注与专家路由最相关的观测，而不是整段全量输入。
+
+实现方式：
+
+- `MoeLayer` 新增 `gate_input_indices`
+- `MoEActorCritic` 根据组件名映射观测索引
+- actor / critic 可分别指定不同的 gate 输入子集
+
+当前 Parkour 采用的组件定义：
+
+- actor gate:
+  - `projected_gravity`
+  - `velocity_commands`
+  - `base_ang_vel`
+  - `parallel_latent_0_depth_encoder`
+
+- critic gate:
+  - `base_lin_vel`
+  - `base_ang_vel`
+  - `projected_gravity`
+  - `velocity_commands`
+  - `parallel_latent_0_depth_encoder`
+
+统一定义位置：
+
+- `instinctlab/.../tasks/parkour/config/g1/agents/gate_slice.py`
+
+配置方式有两种：
+
+1. 用单独任务：
+   - `Instinct-Parkour-Target-Amp-G1-Gate-v0`
+   - `Instinct-Parkour-Target-Amp-G1-Gate-Play-v0`
+   - `Instinct-Parkour-Target-Amp-G1-Stair-Gate-v0`
+   - `Instinct-Parkour-Target-Amp-G1-Stair-Gate-Play-v0`
+
+2. 用统一 CLI 开关：
+   - `--gate_slice`
+   - train / play 都生效
+
+注意：
+
+- 不加 `--gate_slice` 时，gate 使用全量输入
+- 加 `--gate_slice` 时，gate 使用组件子集
+- checkpoint 的训练结构与测试结构必须一致
+
+### 3.3 ConvTemporalTransformer 深度时序编码器
+
+目标：用更强的时序建模替代纯 CNN 或纯 MLP 深度编码。
+
+模型结构：
+
+- 单帧 CNN 提取空间特征
+- Transformer 编码时序历史
+- `latest / mean / max` 池化
+- 输出固定长度 latent
+
+支持的输入格式：
+
+- `(..., T, H, W)`
+- `(..., T, H * W)`
+- `(..., T * H * W)`
+
+已在并行编码框架中注册，可作为 `depth_encoder` 使用。
+
+### 3.4 TerrainAux 地形重建辅助任务
+
+目标：强制深度 latent 显式保留局部地形几何信息。
+
+训练流程：
+
+- 环境额外生成 `terrain_aux` 观测组
+- 从深度编码 latent `parallel_latent_0_depth_encoder` 抽取特征
+- 用一个 MLP 重建局部高度图向量
+- 将重建 loss 加入 PPO 总损失
+
+实现细节：
+
+- 重建头类型：MLP
+- 输出目标：99 维局部高度图向量
+- 默认 loss：`smooth_l1`
+- 默认系数：`terrain_reconstruction_loss_coef = 0.1`
+
+相关新增：
+
+- `TerrainAuxEncoderMoEActorCritic`
+- `terrain_aux` observation group
+- rollout 中 auxiliary observation 存储
+- PPO auxiliary loss 支持
+
+对应任务入口：
+
+- `Instinct-Parkour-Target-Amp-G1-TerrainAux-v0`
+- `Instinct-Parkour-Target-Amp-G1-TerrainAux-Play-v0`
+- `Instinct-Parkour-Target-Amp-G1-Stair-TerrainAux-v0`
+- `Instinct-Parkour-Target-Amp-G1-Stair-TerrainAux-Play-v0`
+
+### 3.5 单地形 / 单难度 play 测试
+
+目标：在仿真中稳定复现某一类地形和某一难度行，便于对比策略行为。
+
+新增参数：
+
+- `--terrain_name`
+  - 强制只保留某一个 sub-terrain
+
+- `--terrain_level`
+  - 强制单环境固定在某个 difficulty row
+
+使用场景：
+
+- 楼梯专项测试
+- 某类障碍专项测试
+- ONNX 与 PyTorch 行为对比
+
+### 3.6 服务器兼容性修复
+
+已处理两个常见问题：
+
+1. `store_code_state()` 在服务器容器里因 git HEAD 非标准而崩溃
+   - 当前策略：跳过 git diff snapshot，不中断训练
+
+2. `cli_args.py` 顶层 import Parkour gate 常量会提前触发 Isaac / Omniverse import
+   - 当前策略：对 gate slice 组件表使用惰性导入
+
+---
+
+## 4. 当前可用任务入口
+
+基础任务：
+
+- `Instinct-Parkour-Target-Amp-G1-v0`
+- `Instinct-Parkour-Target-Amp-G1-Play-v0`
+
+楼梯任务：
+
+- `Instinct-Parkour-Target-Amp-G1-Stair-v0`
+- `Instinct-Parkour-Target-Amp-G1-Stair-Play-v0`
+
+Gate 任务：
+
+- `Instinct-Parkour-Target-Amp-G1-Gate-v0`
+- `Instinct-Parkour-Target-Amp-G1-Gate-Play-v0`
+- `Instinct-Parkour-Target-Amp-G1-Stair-Gate-v0`
+- `Instinct-Parkour-Target-Amp-G1-Stair-Gate-Play-v0`
+
+TerrainAux 任务：
+
+- `Instinct-Parkour-Target-Amp-G1-TerrainAux-v0`
+- `Instinct-Parkour-Target-Amp-G1-TerrainAux-Play-v0`
+- `Instinct-Parkour-Target-Amp-G1-Stair-TerrainAux-v0`
+- `Instinct-Parkour-Target-Amp-G1-Stair-TerrainAux-Play-v0`
+
+---
+
+## 5. 常用接口与命令
+
+### 训练
+
+基础训练：
+
+```bash
+python instinctlab/scripts/instinct_rl/train.py \
+  --headless \
+  --task=Instinct-Parkour-Target-Amp-G1-v0
+```
+
+开启 gate 切片：
+
+```bash
+python instinctlab/scripts/instinct_rl/train.py \
+  --headless \
+  --task=Instinct-Parkour-Target-Amp-G1-TerrainAux-v0 \
+  --gate_slice
+```
+
+2 卡分布式：
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 torchrun \
+  --standalone \
+  --nnodes=1 \
+  --nproc_per_node=2 \
+  instinctlab/scripts/instinct_rl/train.py \
+  --headless \
+  --task=Instinct-Parkour-Target-Amp-G1-v0 \
+  --num_envs=256
+```
+
+### Play
+
+基础 play：
+
+```bash
+python source/instinctlab/instinctlab/tasks/parkour/scripts/play.py \
+  --task=Instinct-Parkour-Target-Amp-G1-Play-v0 \
+  --load_run=<run_name>
+```
+
+TerrainAux play：
+
+```bash
+python source/instinctlab/instinctlab/tasks/parkour/scripts/play.py \
+  --task=Instinct-Parkour-Target-Amp-G1-TerrainAux-Play-v0 \
+  --load_run=<run_name> \
+  --checkpoint=model_15000.pt \
+  --num_envs=1
+```
+
+单地形单难度：
+
+```bash
+python source/instinctlab/instinctlab/tasks/parkour/scripts/play.py \
+  --task=Instinct-Parkour-Target-Amp-G1-Stair-Play-v0 \
+  --load_run=<run_name> \
+  --num_envs=1 \
+  --terrain_name=pyramid_stairs_inv \
+  --terrain_level=2
+```
+
+### ONNX 导出
+
+```bash
+python source/instinctlab/instinctlab/tasks/parkour/scripts/play.py \
+  --task=Instinct-Parkour-Target-Amp-G1-TerrainAux-Play-v0 \
+  --load_run=<run_name> \
+  --checkpoint=model_15000.pt \
+  --num_envs=1 \
+  --exportonnx
+```
+
+### ONNX 推理 + MoE gate 日志
+
+```bash
+python source/instinctlab/instinctlab/tasks/parkour/scripts/play.py \
+  --task=Instinct-Parkour-Target-Amp-G1-Play-v0 \
+  --load_run=<run_name> \
+  --useonnx \
+  --num_envs=1 \
+  --log_moe_gate
+```
+
+---
+
+## 6. 重要兼容性注意事项
+
+### Gate slice 与 checkpoint
+
+- 全量 gate 训练出来的 checkpoint：
+  - 测试时不要加 `--gate_slice`
+
+- 切片 gate 训练出来的 checkpoint：
+  - 测试与导出时也必须加 `--gate_slice`
+
+### TerrainAux checkpoint
+
+- TerrainAux checkpoint 应使用 TerrainAux 对应任务入口加载
+- 不要混用到基础 `G1-v0` 或其它不同 encoder / gate 结构的任务中
+
+### 服务器资源
+
+Parkour 训练默认较重：
+
+- 基础环境默认 `4096` env
+- 地形生成和深度传感器都较吃资源
+
+服务器验证建议：
+
+- 先降到 `--num_envs 128` 或 `256`
+- 开 `--headless`
+- 不录视频
+- 给容器配置足够的 `ephemeral-storage`
+
+### git 环境
+
+容器 / 服务器中如果 `.git` 不完整：
+
+- 当前 `store_code_state()` 会自动跳过 git snapshot
+- 训练不会因此终止
+
+---
+
+## 7. 实机部署相关模型
+
+仓库中已有的 G1 描述资源：
+
+- `g1_29dof.urdf`
+- `g1_29dof_with_hand.urdf`
+- `g1_29dof_torsobase_popsicle.urdf`
+- `g1_29dof_torsobase_boxHand.urdf`
+- `g1_29dof_torsobase_cylinder.urdf`
+- `g1_29dof_torsobase_clog.urdf`
+
+其中：
+
+- `g1_29dof_with_hand.urdf`
+  - 是带灵巧手版本的完整 URDF
+
+- `g1_29dof_torsobase_boxHand.urdf`
+  - 适合做手部质量 / 惯量简化近似
+
+如果实机安装的灵巧手质量、惯量、COM 与默认手模型不一致，部署前应优先校准：
+
+- 手掌总质量
+- 安装位姿
+- 手部 COM
+- 等效惯量
+
+必要时可先用 box-hand 或等效固定刚体近似，把整机平衡调稳后再细化手部建模。
