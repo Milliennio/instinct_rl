@@ -288,3 +288,6 @@ python source/instinctlab/instinctlab/tasks/parkour/scripts/play.py \
   --load_run=0612_5090 \
   --exportonnx \
   --num_envs 1
+
+
+  方向 4 现在很热，但更分散。最近的强势论文更多是 MotionWAM、MotuBrain、DreamDojo 这种 world/action model，主要落在 manipulation 或 loco-manipulation，不是纯楼梯行走。
