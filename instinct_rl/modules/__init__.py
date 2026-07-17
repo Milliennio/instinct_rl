@@ -10,6 +10,7 @@ from .all_mixer import (
     EncoderVaeActorCritic,
 )
 from .conv_temporal_transformer import ConvTemporalTransformerHeadModel
+from .depth_command_cross_attention import DepthCommandCrossAttentionHeadModel
 from .discriminator import Discriminator
 from .encoder_actor_critic import EncoderActorCritic, EncoderActorCriticRecurrent
 from .moe_actor_critic import MoEActorCritic
