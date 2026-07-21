@@ -472,14 +472,14 @@ encoded critic obs (888)
 当前代码状态需要特别注意：
 
 ```python
-moe_actor_gate_component_names = None
-moe_critic_gate_component_names = None
+moe_actor_gate_component_names = ACTOR_MOE_GATE_COMPONENT_NAMES
+moe_critic_gate_component_names = CRITIC_MOE_GATE_COMPONENT_NAMES
 ```
 
-这意味着在 `TerrainAuxMoEPolicyCfg` 中，MoE gate 默认使用完整的编码后 actor/critic 输入：
+这意味着在 `TerrainAuxMoEPolicyCfg` 中，MoE gate 默认只使用任务相关的低维组件：
 
-- actor gate 输入：`864`
-- critic gate 输入：`888`
+- actor gate：`projected_gravity + velocity_commands + base_ang_vel + depth_latent = 24+24+24+96 = 168`
+- critic gate：`base_lin_vel + base_ang_vel + projected_gravity + velocity_commands + depth_latent = 24+24+24+24+96 = 192`
 
 文件里虽然导入了：
 
@@ -487,10 +487,10 @@ moe_critic_gate_component_names = None
 from .gate_slice import ACTOR_MOE_GATE_COMPONENT_NAMES, CRITIC_MOE_GATE_COMPONENT_NAMES
 ```
 
-但当前 `TerrainAux` policy 没有使用它们。`GateSeparatedMoEPolicyCfg` 才使用这些切片。如果以后把 `TerrainAuxMoEPolicyCfg` 改成 gate-separated，则 gate 输入会变成：
+当前 `TerrainAux` policy 已经直接使用这些切片。如果命令行加入 `--no_gate_slice`，CLI 会把 actor/critic gate component names 覆盖为 `None`，切回完整编码后输入：
 
-- actor gate：`projected_gravity + velocity_commands + base_ang_vel + depth_latent = 24+24+24+96 = 168`
-- critic gate：`base_lin_vel + base_ang_vel + projected_gravity + velocity_commands + depth_latent = 24+24+24+24+96 = 192`
+- actor gate 输入：`864`
+- critic gate 输入：`888`
 
 这点和 checkpoint 兼容性直接相关。
 
@@ -789,25 +789,25 @@ Stair terrain specialization + depth temporal encoder + local terrain reconstruc
 
 2. `TERRAIN_AUX_OUTPUT_SHAPE = (99,)` 在环境配置和训练配置中各定义了一份。后续如果改 grid size/resolution，需要同时保持两处一致，否则辅助头输出和标签 shape 会错。
 
-3. 当前 `TerrainAuxMoEPolicyCfg` 没有启用 gate-separated 切片。虽然导入了 `gate_slice`，但 actor/critic gate component names 均为 `None`。这意味着当前 checkpoint 结构应匹配 full-gate：
-
-```text
-actor gate input  = 864
-critic gate input = 888
-```
-
-4. 如果改成：
-
-```python
-moe_actor_gate_component_names = ACTOR_MOE_GATE_COMPONENT_NAMES
-moe_critic_gate_component_names = CRITIC_MOE_GATE_COMPONENT_NAMES
-```
-
-则 gate 结构会变成：
+3. 当前 `TerrainAuxMoEPolicyCfg` 默认启用 gate-slice。actor/critic gate component names 来自 `gate_slice.py`，因此默认 checkpoint 结构应匹配 sliced-gate：
 
 ```text
 actor gate input  = 168
 critic gate input = 192
+```
+
+4. 如果命令行加入 `--no_gate_slice`，CLI 会把：
+
+```python
+moe_actor_gate_component_names = None
+moe_critic_gate_component_names = None
+```
+
+此时 gate 结构会切回 full-gate：
+
+```text
+actor gate input  = 864
+critic gate input = 888
 ```
 
 这会影响旧 checkpoint 加载和 ONNX 导出。

@@ -568,26 +568,11 @@ encoded critic obs (888)
 当前代码状态：
 
 ```python
-moe_actor_gate_component_names = None
-moe_critic_gate_component_names = None
+moe_actor_gate_component_names = ACTOR_MOE_GATE_COMPONENT_NAMES
+moe_critic_gate_component_names = CRITIC_MOE_GATE_COMPONENT_NAMES
 ```
 
-因此当前 TerrainAux 任务的 MoE gate 使用完整编码后输入：
-
-```text
-actor gate input  = 864
-critic gate input = 888
-```
-
-文件中虽然导入了 `ACTOR_MOE_GATE_COMPONENT_NAMES` 和 `CRITIC_MOE_GATE_COMPONENT_NAMES`，但默认配置没有直接使用。当前代码还提供了统一 CLI 参数 `--gate_slice`，会在 `parse_instinct_rl_cfg()` 后动态覆盖 policy 的 MoE gate component names：
-
-```python
-if args_cli.gate_slice:
-    policy_cfg.moe_actor_gate_component_names = ACTOR_MOE_GATE_COMPONENT_NAMES
-    policy_cfg.moe_critic_gate_component_names = CRITIC_MOE_GATE_COMPONENT_NAMES
-```
-
-启用 `--gate_slice` 后，gate 不再看完整编码后观测，而只看任务相关的低维组件：
+因此当前 TerrainAux 任务默认启用 gate-slice，gate 不再看完整编码后观测，而只看任务相关的低维组件：
 
 ```text
 actor gate components:
@@ -604,14 +589,21 @@ critic gate components:
   parallel_latent_0_depth_encoder
 ```
 
-对应 gate 输入维度变为：
+对应 gate 输入维度为：
 
 ```text
 actor gate input  = 168
 critic gate input = 192
 ```
 
-这会改变 checkpoint 中 gate 层权重形状。因此训练、测试、导出 ONNX 时必须保持一致：用 full-gate 训练的 checkpoint 不应在测试时额外加 `--gate_slice`；用 `--gate_slice` 训练的 checkpoint，测试和导出时也应继续加 `--gate_slice`。
+CLI 仍保留 `--gate_slice` 和 `--no_gate_slice`。默认不传参数时使用配置文件中的 gate-slice；若显式加入 `--no_gate_slice`，会把 actor/critic gate component names 覆盖为 `None`，切回 full-gate：
+
+```text
+actor gate input  = 864
+critic gate input = 888
+```
+
+这会改变 checkpoint 中 gate 层权重形状。因此训练、测试、导出 ONNX 时必须保持一致：默认 gate-slice checkpoint 不应在测试时额外加 `--no_gate_slice`；如果用 `--no_gate_slice` 训练了 full-gate checkpoint，测试和导出时也应继续加 `--no_gate_slice`。
 
 ## 10. TerrainAux 辅助头
 
@@ -934,16 +926,16 @@ TerrainAux path
 
 2. `TERRAIN_AUX_OUTPUT_SHAPE = (99,)` 在环境配置和训练配置中各有一份。若以后改 `TERRAIN_AUX_GRID_RESOLUTION` 或 `TERRAIN_AUX_GRID_SIZE`，需要同步修改 policy 辅助头输出 shape。
 
-3. 当前 TerrainAux policy 的默认 MoE gate 仍是 full-gate：
+3. 当前 TerrainAux policy 的默认 MoE gate 已经启用 gate-slice：
 
 ```text
-actor gate input  = 864
-critic gate input = 888
+actor gate input  = 168
+critic gate input = 192
 ```
 
-如果命令行加入 `--gate_slice`，`instinctlab/scripts/instinct_rl/cli_args.py` 会把 `moe_actor_gate_component_names` / `moe_critic_gate_component_names` 改为 `gate_slice.py` 中的组件子集，gate 输入变为 actor `168`、critic `192`。
+如果命令行加入 `--no_gate_slice`，`instinctlab/scripts/instinct_rl/cli_args.py` 会把 `moe_actor_gate_component_names` / `moe_critic_gate_component_names` 覆盖为 `None`，gate 输入切回 actor `864`、critic `888`。
 
-4. `--gate_slice` 是 checkpoint 结构相关开关。训练、play、ONNX 导出时应保持一致：full-gate checkpoint 不加 `--gate_slice`；gate-slice checkpoint 要加 `--gate_slice`。否则 actor/critic gate 权重形状会不匹配。
+4. gate-slice 是 checkpoint 结构相关配置。训练、play、ONNX 导出时应保持一致：默认 gate-slice checkpoint 不加 `--no_gate_slice`；full-gate checkpoint 需要继续加 `--no_gate_slice`。否则 actor/critic gate 权重形状会不匹配。
 
 5. `terrain_aux` 是训练期辅助标签，不是部署时必需输入。部署 actor 时需要深度图输入和 encoder，但不需要 height-map scanner 标签。
 

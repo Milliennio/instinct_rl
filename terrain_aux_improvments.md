@@ -203,9 +203,9 @@ actor input  = 864
 critic input = 888
 ```
 
-### 5.2 与 `--gate_slice` 的关系
+### 5.2 与默认 gate-slice 的关系
 
-`--gate_slice` 仍然可用。
+TerrainAux 系列配置默认启用 gate-slice。
 
 因为新 encoder 仍输出同名 latent：
 
@@ -230,12 +230,14 @@ critic gate:
   parallel_latent_0_depth_encoder
 ```
 
-启用 `--gate_slice` 后，gate 输入维度仍为：
+默认 gate 输入维度仍为：
 
 ```text
 actor gate  = 168
 critic gate = 192
 ```
+
+CLI 仍保留 `--gate_slice` 和 `--no_gate_slice`。默认不传参数时使用 gate-slice；只有需要兼容 full-gate checkpoint 时才使用 `--no_gate_slice`。
 
 ### 5.3 TerrainAux 辅助头保持不变
 
@@ -264,11 +266,11 @@ Baseline:
 CrossAttn:
   Instinct-Parkour-Target-Amp-G1-TerrainAux-CrossAttn-v0
 
-Baseline + gate slice:
-  Baseline task + --gate_slice
+Stair CrossAttn:
+  Instinct-Parkour-Target-Amp-G1-Stair-TerrainAux-CrossAttn-v0
 
-CrossAttn + gate slice:
-  CrossAttn task + --gate_slice
+Full-gate compatibility:
+  Any TerrainAux task + --no_gate_slice
 ```
 
 重点观察：
